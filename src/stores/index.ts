@@ -1,0 +1,13 @@
+// Export tous les stores depuis un point d'entrée unique
+export * from './auth'
+export * from './patients'
+export * from './rdv'
+export * from './stagiaires'
+export * from './prestations'
+export * from './ecoles'
+export * from './categories'
+export * from './factures'
+export * from './rdvRealises'
+export * from './employes'
+export * from './stats'
+export * from './secretariat'
