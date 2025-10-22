@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { useAuthStore, usePatientsStore, useRdvStore } from '@/stores'
+import { useAuthStore, usePatientsStore, useRdvStore, useStatsStore } from '@/stores'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import VueApexCharts from 'vue3-apexcharts'
 import FullCalendar from '@fullcalendar/vue3'
@@ -16,6 +16,7 @@ import { Document, User, Calendar, TrendCharts } from '@element-plus/icons-vue'
 const authStore = useAuthStore()
 const patientsStore = usePatientsStore()
 const rdvStore = useRdvStore()
+const statsStore = useStatsStore()
 
 const loading = ref(true)
 const selectedMonth = ref(new Date())
@@ -207,27 +208,36 @@ const resetInternshipForm = () => {
 const loadDashboardData = async () => {
   loading.value = true
   try {
-    // Fetch patients and rdv data
-    await Promise.all([
-      patientsStore.fetchAll(),
-      rdvStore.fetchAll(),
+    // Charger les statistiques depuis le backend
+    const [dashboardData, rdvGlobal, patientsGlobal, prestationsPopulaires] = await Promise.all([
+      statsStore.getDashboard(),
+      statsStore.getRDVGlobal(),
+      statsStore.getPatientsGlobal(),
+      statsStore.getPrestationsPopulaires(5),
     ])
 
-    // Calculate stats
-    stats.value.totalPatients = patientsStore.totalPatients
-    stats.value.totalRdvMois = rdvStore.rdvs.length
-    stats.value.rdvRealises = rdvStore.rdvs.filter(
-      (rdv) => rdv.timestamp_RDV_reel
-    ).length
+    // Mettre à jour les KPIs
+    if (patientsGlobal) {
+      stats.value.totalPatients = patientsGlobal.totalPatients || 0
+    }
 
-    // Update charts
-    const realises = rdvStore.rdvs.filter((r) => r.timestamp_RDV_reel).length
-    const planifies = rdvStore.rdvs.filter((r) => !r.timestamp_RDV_reel).length
-    rdvStatusChartSeries.value = [realises, planifies, 5] // Mock cancelled
+    if (rdvGlobal) {
+      stats.value.totalRdvMois = rdvGlobal.totalRDV || 0
+      stats.value.rdvRealises = rdvGlobal.rdvRealises || 0
 
-  } catch (error) {
-    ElMessage.error('Erreur lors du chargement des données')
-    console.error(error)
+      // Mettre à jour le graphique des statuts RDV
+      const realises = rdvGlobal.rdvRealises || 0
+      const planifies = (rdvGlobal.totalRDV || 0) - realises
+      const annules = rdvGlobal.rdvAnnules || 0
+      rdvStatusChartSeries.value = [realises, planifies, annules]
+    }
+
+    // Charger les données pour le calendrier de stages
+    await rdvStore.fetchAll()
+
+  } catch (error: any) {
+    console.error('Erreur chargement dashboard:', error)
+    ElMessage.error('Erreur lors du chargement des statistiques')
   } finally {
     loading.value = false
   }

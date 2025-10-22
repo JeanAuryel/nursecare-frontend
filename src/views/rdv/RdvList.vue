@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { useRdvStore, usePatientsStore, useStagiairesStore, usePrestationsStore, useAuthStore } from '@/stores'
+import { ref, onMounted, computed, watch } from 'vue'
+import { useRdvStore, usePatientsStore, useStagiairesStore, usePrestationsStore, useAuthStore, useEmployesStore } from '@/stores'
 import FullCalendar from '@fullcalendar/vue3'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
@@ -18,6 +18,7 @@ const patientsStore = usePatientsStore()
 const stagiairesStore = useStagiairesStore()
 const prestationsStore = usePrestationsStore()
 const authStore = useAuthStore()
+const employesStore = useEmployesStore()
 
 const loading = ref(false)
 const dialogVisible = ref(false)
@@ -50,12 +51,48 @@ const formRules = {
 
 const formRef = ref()
 
-// Available nurses (mock - should come from an employees store)
-const availableNurses = ref([
-  { id: 1, name: 'Dr. Martin Dubois', role: RoleEmploye.INFIRMIER },
-  { id: 2, name: 'Dr. Sophie Laurent', role: RoleEmploye.INFIRMIER },
-  { id: 3, name: 'Dr. Pierre Bernard', role: RoleEmploye.INFIRMIER },
-])
+// Liste des infirmiers disponibles (chargée depuis le backend)
+const availableNurses = computed(() => {
+  return employesStore.employes
+    .filter(e => e.roleEmploye === RoleEmploye.INFIRMIER)
+    .map(e => ({
+      idEmploye: e.idEmploye,
+      nomComplet: `${e.prenomEmploye} ${e.nomEmploye}`,
+      ...e
+    }))
+})
+
+// Fonction pour trouver l'infirmier habituel d'un patient
+const findPatientUsualNurse = (patientId: number) => {
+  // Trouver tous les RDV du patient
+  const patientRdvs = rdvStore.rdvs.filter(r => r.idPatient === patientId)
+
+  if (patientRdvs.length === 0) return null
+
+  // Compter les RDV par infirmier
+  const nurseCounts = patientRdvs.reduce((acc, rdv) => {
+    const nurseId = rdv.idEmploye
+    acc[nurseId] = (acc[nurseId] || 0) + 1
+    return acc
+  }, {} as Record<number, number>)
+
+  // Trouver l'infirmier avec le plus de RDV
+  const usualNurseId = Object.entries(nurseCounts)
+    .sort(([, a], [, b]) => b - a)[0]?.[0]
+
+  return usualNurseId ? parseInt(usualNurseId) : null
+}
+
+// Watcher pour pré-sélectionner l'infirmier quand un patient est choisi
+watch(() => rdvForm.value.idPatient, (newPatientId) => {
+  if (newPatientId && !isEditMode.value) {
+    const usualNurseId = findPatientUsualNurse(newPatientId)
+    if (usualNurseId) {
+      rdvForm.value.idEmploye = usualNurseId
+      ElMessage.success('Infirmier habituel du patient pré-sélectionné')
+    }
+  }
+})
 
 // Filter options
 const filterEmployeId = ref<number | null>(null)
@@ -255,6 +292,7 @@ const loadData = async () => {
       patientsStore.fetchAll(),
       stagiairesStore.fetchAll(),
       prestationsStore.fetchAll(),
+      employesStore.fetchAll(), // Charger les employés pour avoir la liste des infirmiers
     ])
 
     // Update calendar events
@@ -304,9 +342,9 @@ onMounted(() => {
           >
             <el-option
               v-for="nurse in availableNurses"
-              :key="nurse.id"
-              :label="nurse.name"
-              :value="nurse.id"
+              :key="nurse.idEmploye"
+              :label="nurse.nomComplet"
+              :value="nurse.idEmploye"
             />
           </el-select>
         </el-col>
@@ -412,11 +450,14 @@ onMounted(() => {
               >
                 <el-option
                   v-for="nurse in availableNurses"
-                  :key="nurse.id"
-                  :label="nurse.name"
-                  :value="nurse.id"
+                  :key="nurse.idEmploye"
+                  :label="nurse.nomComplet"
+                  :value="nurse.idEmploye"
                 />
               </el-select>
+              <div v-if="rdvForm.idPatient && findPatientUsualNurse(rdvForm.idPatient)" class="text-xs text-gray-500 mt-1">
+                💡 Infirmier habituel du patient
+              </div>
             </el-form-item>
           </el-col>
 
